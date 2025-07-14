@@ -3,9 +3,9 @@ const crypto = require('crypto');
 const https = require('https');
 const router = express.Router();
 require('dotenv').config();
-const Order = require('../models/order.model'); // Đảm bảo đúng path
+const Order = require('../models/order.model');
 
-// 🎯 Tạo thanh toán MoMo
+// Tạo thanh toán MoMo
 router.post('/create', async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -13,14 +13,14 @@ router.post('/create', async (req, res) => {
     const partnerCode = process.env.MOMO_PARTNER_CODE;
     const accessKey = process.env.MOMO_ACCESS_KEY;
     const secretKey = process.env.MOMO_SECRET_KEY;
-    const redirectUrl = process.env.MOMO_RETURN_URL;
+    const redirectUrl = `${process.env.MOMO_RETURN_URL}?orderId=${orderId}`;
     const ipnUrl = process.env.MOMO_NOTIFY_URL;
     const requestId = `${orderId}-${Date.now()}`;
     const requestType = 'payWithMethod';
     const extraData = '';
     const lang = 'vi';
     const autoCapture = true;
-    const orderInfo = 'Thanh toán đơn hàng Burger King';
+    const orderInfo = 'Thanh toán Burger King';
     const partnerName = 'Burger King';
     const storeId = 'BK_STORE_01';
     const orderGroupId = '';
@@ -70,31 +70,31 @@ router.post('/create', async (req, res) => {
       momoRes.on('data', chunk => data += chunk);
       momoRes.on('end', () => {
         const result = JSON.parse(data);
-        console.log('✅ MoMo Response:', result);
-        return res.status(200).json({ payUrl: result.payUrl });
+        console.log('✅ [MoMo] Response:', result);
+        res.status(200).json({ payUrl: result.payUrl });
       });
     });
 
     momoReq.on('error', err => {
-      console.error('❌ HTTPS Error:', err.message);
-      return res.status(500).json({ error: 'Tạo thanh toán thất bại' });
+      console.error('❌ [MoMo] HTTPS Error:', err.message);
+      res.status(500).json({ error: 'Tạo thanh toán thất bại' });
     });
 
     momoReq.write(requestBody);
     momoReq.end();
   } catch (err) {
-    console.error('❌ Exception:', err.message);
+    console.error('❌ [MoMo] Exception:', err.message);
     res.status(500).json({ error: 'Tạo thanh toán thất bại' });
   }
 });
 
-// ✅ Nhận kết quả thanh toán (IPN)
+// Xử lý IPN từ MoMo
 router.post('/ipn', async (req, res) => {
   try {
     const data = req.body;
-    console.log('📥 [IPN MoMo] Nhận:', data);
+    console.log('📥 [IPN] Dữ liệu MoMo:', data);
 
-    const rawSignature = 
+    const rawSignature =
       `accessKey=${process.env.MOMO_ACCESS_KEY}` +
       `&amount=${data.amount}` +
       `&extraData=${data.extraData}` +
@@ -114,27 +114,31 @@ router.post('/ipn', async (req, res) => {
       .update(rawSignature)
       .digest('hex');
 
-    console.log('[✅] Gen Signature:', genSig);
-    console.log('[✅] Momo Signature:', data.signature);
-
     if (genSig !== data.signature) {
       console.error('❌ [IPN] Sai chữ ký!');
+      console.log('[DEBUG] Gen:', genSig);
+      console.log('[DEBUG] MoMo:', data.signature);
       return res.status(400).send('Invalid signature');
     }
 
     if (parseInt(data.resultCode) === 0) {
-      const result = await Order.updateOne(
-        { orderId: data.orderId },
-        { $set: { isPaid: true, momoTransId: data.transId } }
-      );
-
-      console.log('📦 Cập nhật Mongo:', result);
-
-      if (result.modifiedCount > 0) {
-        console.log(`✅ Đơn hàng ${data.orderId} đã thanh toán`);
-      } else {
-        console.warn(`⚠️ Không tìm thấy đơn hàng ${data.orderId}`);
+      const order = await Order.findOne({ orderId: data.orderId });
+      if (!order) {
+        console.warn(`⚠️ [IPN] Không tìm thấy đơn hàng ${data.orderId}`);
+        return res.status(404).send('Order not found');
       }
+
+      if (parseInt(data.amount) !== order.total) {
+        console.warn(`⚠️ [IPN] Số tiền không khớp cho ${data.orderId}`);
+        return res.status(400).send('Wrong amount');
+      }
+
+      order.isPaid = true;
+      order.momoTransId = data.transId;
+      order.paidAt = new Date();
+      await order.save();
+
+      console.log(`✅ [IPN] Đơn hàng ${data.orderId} đã thanh toán`);
     }
 
     res.status(200).send('OK');
@@ -144,13 +148,13 @@ router.post('/ipn', async (req, res) => {
   }
 });
 
-// ✅ Trang /return
+// Trang xác nhận khi redirect từ MoMo
 router.get('/return', (req, res) => {
-  
+ 
   res.send(`
     <h2>🎉 Thanh toán thành công!</h2>
     <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
-  
+    
   `);
 });
 
