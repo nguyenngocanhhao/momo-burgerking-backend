@@ -5,7 +5,7 @@ const router = express.Router();
 require('dotenv').config();
 const Order = require('../models/order.model'); // Đảm bảo đúng path
 
-// 🎯 Route: Tạo thanh toán MoMo
+// 🎯 Tạo thanh toán MoMo
 router.post('/create', async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -25,7 +25,6 @@ router.post('/create', async (req, res) => {
     const storeId = 'BK_STORE_01';
     const orderGroupId = '';
 
-    // rawSignature theo chuẩn payWithMethod
     const rawSignature = 
       `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}` +
       `&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}` +
@@ -89,7 +88,7 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// ✅ IPN: Nhận kết quả thanh toán
+// ✅ Nhận kết quả thanh toán (IPN)
 router.post('/ipn', async (req, res) => {
   try {
     const data = req.body;
@@ -114,6 +113,9 @@ router.post('/ipn', async (req, res) => {
       .createHmac('sha256', process.env.MOMO_SECRET_KEY)
       .update(rawSignature)
       .digest('hex');
+
+    console.log('[✅] Gen Signature:', genSig);
+    console.log('[✅] Momo Signature:', data.signature);
 
     if (genSig !== data.signature) {
       console.error('❌ [IPN] Sai chữ ký!');
@@ -141,13 +143,15 @@ router.post('/ipn', async (req, res) => {
     res.status(500).send('Server error');
   }
 });
-// ✅ Route /return để tránh trắng trang
+
+// ✅ Trang /return
 router.get('/return', (req, res) => {
+  
   res.send(`
     <h2>🎉 Thanh toán thành công!</h2>
     <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
+  
   `);
 });
-
 
 module.exports = router;
