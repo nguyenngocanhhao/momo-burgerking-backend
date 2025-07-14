@@ -92,8 +92,8 @@ router.post('/create', async (req, res) => {
 // ✅ IPN: Nhận kết quả thanh toán
 router.post('/ipn', async (req, res) => {
   try {
-    console.log('🔔 [IPN] Nhận từ MoMo:', req.body);
     const data = req.body;
+    console.log('📥 [IPN MoMo] Nhận:', data);
 
     const rawSignature = 
       `accessKey=${process.env.MOMO_ACCESS_KEY}` +
@@ -126,22 +126,21 @@ router.post('/ipn', async (req, res) => {
         { $set: { isPaid: true, momoTransId: data.transId } }
       );
 
+      console.log('📦 Cập nhật Mongo:', result);
+
       if (result.modifiedCount > 0) {
         console.log(`✅ Đơn hàng ${data.orderId} đã thanh toán`);
       } else {
         console.warn(`⚠️ Không tìm thấy đơn hàng ${data.orderId}`);
       }
-    } else {
-      console.warn(`⚠️ Giao dịch thất bại: resultCode=${data.resultCode}`);
     }
 
     res.status(200).send('OK');
   } catch (err) {
-    console.error('❌ Lỗi IPN:', err.message);
+    console.error('❌ [IPN] Lỗi xử lý:', err.message);
     res.status(500).send('Server error');
   }
 });
-
 // ✅ Route /return để tránh trắng trang
 router.get('/return', (req, res) => {
   res.send(`
@@ -149,5 +148,6 @@ router.get('/return', (req, res) => {
     <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
   `);
 });
+
 
 module.exports = router;
