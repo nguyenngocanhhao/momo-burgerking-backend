@@ -1,5 +1,5 @@
 const User = require('../models/user.model');
-const bcrypt = require('bcrypt');
+const bcryptjs = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 exports.registerUser = async (req, res) => {
@@ -12,7 +12,7 @@ exports.registerUser = async (req, res) => {
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ error: 'Email đã tồn tại' });
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hashed = await bcryptjsjs.hash(password, 10);
     const newUser = new User({ name, email, password: hashed, phone });
     await newUser.save();
 
@@ -26,7 +26,7 @@ exports.loginUser = async (req, res) => {
   const { email, password } = req.body;
 
   const user = await User.findOne({ email });
-  const isMatch = await bcrypt.compare(password, user.password);
+  const isMatch = await bcryptjs.compare(password, user.password);
 if (!user || !isMatch) {
   return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });
 }
@@ -149,7 +149,7 @@ exports.resetPassword = async (req, res) => {
   }
 
   try {
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcryptjs.hash(newPassword, 10);
     const user = await User.findOneAndUpdate(
       { email },
       { password: hashedPassword },
@@ -182,10 +182,10 @@ exports.changePassword = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    const isMatch = await bcryptjs.compare(currentPassword, user.password);
     if (!isMatch) return res.status(401).json({ error: 'Mật khẩu hiện tại không đúng' });
 
-    const hashed = await bcrypt.hash(newPassword, 10);
+    const hashed = await bcryptjs.hash(newPassword, 10);
     user.password = hashed;
     await user.save();
 
