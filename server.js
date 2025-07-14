@@ -26,7 +26,7 @@ app.use(express.json());
 
  
 const momoRoute = require('./routes/momo.route');
-app.use('/api/payment', momoRoute);
+app.use('/api/momo', momoRoute);
 
 const orderRoutes = require('./routes/order.route');
 app.use('/orders', orderRoutes);

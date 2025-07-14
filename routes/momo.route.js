@@ -1,11 +1,11 @@
 const express = require('express');
 const crypto = require('crypto');
-const axios = require('axios');
+const https = require('https');
 const router = express.Router();
 require('dotenv').config();
-const Order = require('../models/order.model'); // điều chỉnh path nếu khác
+const Order = require('../models/order.model'); // Đảm bảo đúng path
 
-// 🎯 B1. Tạo thanh toán
+// 🎯 Route: Tạo thanh toán MoMo
 router.post('/create', async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -15,58 +15,87 @@ router.post('/create', async (req, res) => {
     const secretKey = process.env.MOMO_SECRET_KEY;
     const redirectUrl = process.env.MOMO_RETURN_URL;
     const ipnUrl = process.env.MOMO_NOTIFY_URL;
-    const requestType = 'captureWallet';
-    const orderInfo = 'ThanhToanBurgerKing';
     const requestId = `${orderId}-${Date.now()}`;
+    const requestType = 'payWithMethod';
     const extraData = '';
     const lang = 'vi';
+    const autoCapture = true;
+    const orderInfo = 'Thanh toán đơn hàng Burger King';
+    const partnerName = 'Burger King';
+    const storeId = 'BK_STORE_01';
+    const orderGroupId = '';
 
+    // rawSignature theo chuẩn payWithMethod
     const rawSignature = 
-      `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}&ipnUrl=${ipnUrl}` +
-      `&orderId=${orderId}&orderInfo=${orderInfo}&partnerCode=${partnerCode}` +
-      `&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=${requestType}`;
+      `accessKey=${accessKey}&amount=${amount}&extraData=${extraData}` +
+      `&ipnUrl=${ipnUrl}&orderId=${orderId}&orderInfo=${orderInfo}` +
+      `&partnerCode=${partnerCode}&redirectUrl=${redirectUrl}` +
+      `&requestId=${requestId}&requestType=${requestType}`;
 
-    const signature = crypto.createHmac('sha256', secretKey)
+    const signature = crypto
+      .createHmac('sha256', secretKey)
       .update(rawSignature)
       .digest('hex');
 
-    const body = {
+    const requestBody = JSON.stringify({
       partnerCode,
-      accessKey,
+      partnerName,
+      storeId,
       requestId,
       amount: amount.toString(),
       orderId,
       orderInfo,
       redirectUrl,
       ipnUrl,
-      extraData,
-      requestType,
-      signature,
       lang,
-    };
-
-    console.log('\n========== [MoMo Payment Request] ==========');
-    console.log('🔐 rawSignature:', rawSignature);
-    console.log('🧾 signature:', signature);
-    console.log('📦 full body:', body);
-
-    const response = await axios.post(process.env.MOMO_ENDPOINT, body, {
-      headers: { 'Content-Type': 'application/json' }
+      requestType,
+      autoCapture,
+      extraData,
+      orderGroupId,
+      signature,
     });
 
-    return res.status(200).json({ payUrl: response.data.payUrl });
+    const options = {
+      hostname: 'test-payment.momo.vn',
+      port: 443,
+      path: '/v2/gateway/api/create',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(requestBody),
+      },
+    };
+
+    const momoReq = https.request(options, momoRes => {
+      let data = '';
+      momoRes.on('data', chunk => data += chunk);
+      momoRes.on('end', () => {
+        const result = JSON.parse(data);
+        console.log('✅ MoMo Response:', result);
+        return res.status(200).json({ payUrl: result.payUrl });
+      });
+    });
+
+    momoReq.on('error', err => {
+      console.error('❌ HTTPS Error:', err.message);
+      return res.status(500).json({ error: 'Tạo thanh toán thất bại' });
+    });
+
+    momoReq.write(requestBody);
+    momoReq.end();
   } catch (err) {
-    console.error('❌ [MoMo] Lỗi tạo thanh toán:', err.response?.data || err.message);
-    return res.status(500).json({ error: 'Tạo thanh toán thất bại', detail: err.message });
+    console.error('❌ Exception:', err.message);
+    res.status(500).json({ error: 'Tạo thanh toán thất bại' });
   }
 });
 
-
+// ✅ IPN: Nhận kết quả thanh toán
 router.post('/ipn', async (req, res) => {
   try {
+    console.log('🔔 [IPN] Nhận từ MoMo:', req.body);
     const data = req.body;
 
-    const rawSignature =
+    const rawSignature = 
       `accessKey=${process.env.MOMO_ACCESS_KEY}` +
       `&amount=${data.amount}` +
       `&extraData=${data.extraData}` +
@@ -81,30 +110,44 @@ router.post('/ipn', async (req, res) => {
       `&resultCode=${data.resultCode}` +
       `&transId=${data.transId}`;
 
-    const signature = crypto
+    const genSig = crypto
       .createHmac('sha256', process.env.MOMO_SECRET_KEY)
       .update(rawSignature)
       .digest('hex');
 
-    if (signature !== data.signature) {
-      console.error('[IPN] ❌ Sai chữ ký');
+    if (genSig !== data.signature) {
+      console.error('❌ [IPN] Sai chữ ký!');
       return res.status(400).send('Invalid signature');
     }
 
-    if (data.resultCode === 0) {
-      // ✅ Đơn hàng đã thanh toán
-      await Order.updateOne(
-        { orderId: data.orderId }, // hoặc { orderCode: data.orderId } nếu chưa đổi tên
-        { $set: { isPaid: true } }
+    if (parseInt(data.resultCode) === 0) {
+      const result = await Order.updateOne(
+        { orderId: data.orderId },
+        { $set: { isPaid: true, momoTransId: data.transId } }
       );
-      console.log(`[IPN] ✅ Cập nhật đơn ${data.orderId} -> Đã thanh toán`);
+
+      if (result.modifiedCount > 0) {
+        console.log(`✅ Đơn hàng ${data.orderId} đã thanh toán`);
+      } else {
+        console.warn(`⚠️ Không tìm thấy đơn hàng ${data.orderId}`);
+      }
+    } else {
+      console.warn(`⚠️ Giao dịch thất bại: resultCode=${data.resultCode}`);
     }
 
     res.status(200).send('OK');
   } catch (err) {
-    console.error('[IPN] ❌ Lỗi:', err.message);
+    console.error('❌ Lỗi IPN:', err.message);
     res.status(500).send('Server error');
   }
+});
+
+// ✅ Route /return để tránh trắng trang
+router.get('/return', (req, res) => {
+  res.send(`
+    <h2>🎉 Thanh toán thành công!</h2>
+    <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
+  `);
 });
 
 module.exports = router;
