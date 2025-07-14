@@ -146,6 +146,7 @@ router.get('/return', (req, res) => {
   res.send(`
     <h2>🎉 Thanh toán thành công!</h2>
     <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
+    Đơn hàng ${data.orderId} đã thanh toán
   `);
 });
 
