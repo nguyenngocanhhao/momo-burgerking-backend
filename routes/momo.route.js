@@ -91,31 +91,25 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// ✅ Route /return: được redirect từ MoMo sau khi thanh toán thành công
-router.get('/return', async (req, res) => {
-  const orderId = req.query.orderId;
+router.get('/return', (req, res) => {
+  const orderId = req.query.orderId || 'N/A';
 
-  try {
-    const result = await Order.updateOne(
-      { orderId },
-      { $set: { isPaid: true } }
-    );
-
-    console.log('📦 [MoMo RETURN] Cập nhật đơn hàng:', result);
-
-    res.send(`
-      <h2>🎉 Thanh toán thành công!</h2>
-      <p>Bạn có thể đóng trình duyệt và quay lại ứng dụng.</p>
-      <p>Đơn hàng <b>${orderId}</b> đã được thanh toán.</p>
-    `);
-  } catch (err) {
-    console.error('❌ [MoMo RETURN] Lỗi:', err.message);
-    res.status(500).send(`
-      <h2>❌ Lỗi cập nhật đơn hàng</h2>
-      <p>Vui lòng thử lại hoặc liên hệ hỗ trợ.</p>
-    `);
-  }
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8" />
+      <title>Đang chuyển hướng...</title>
+      <script>
+        window.location.href = "burgerking://payment-success?orderId=${orderId}";
+      </script>
+    </head>
+    <body>
+    </body>
+    </html>
+  `);
 });
+
 
 // ✅ IPN: vẫn giữ nguyên nếu sau này muốn dùng lại app MoMo
 router.post('/ipn', async (req, res) => {
